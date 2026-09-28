@@ -16,96 +16,96 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0"
 GITHUB_REPOSITORY = "lotof1292-bit/Transcriptor"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
-AI_PROVIDERS = {
-    "OpenAI": ("https://api.openai.com/v1", "gpt-4o-mini"),
-    "Groq": ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-    "OpenRouter": ("https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct"),
-}
-KEYRING_SERVICE = "Transcriptor"
+AI_MODEL_NAME = "Qwen3-0.6B-Q4_K_M.gguf"
+AI_MODEL_URL = "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true"
 
 
-def credential_store():
-    import keyring
-    from keyring.backends.Windows import WinVaultKeyring
-    keyring.set_keyring(WinVaultKeyring())
-    return keyring
-
-
-class LLMWorker(QThread):
+class LocalAIWorker(QThread):
+    status = Signal(str)
     done = Signal(str)
     error = Signal(str)
 
-    def __init__(self, text, instruction, api_key, base_url, model):
+    def __init__(self, text, instruction, mode):
         super().__init__()
         self.text, self.instruction = text, instruction
-        self.api_key, self.base_url, self.model = api_key, base_url, model
+        self.mode = mode
 
     def run(self):
+        model = None
         try:
-            body = json.dumps({
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": "Eres un asistente experto en resumir y traducir transcripciones. Conserva los hechos y nombres, no inventes información. Responde solo con el resultado solicitado."},
-                    {"role": "user", "content": f"{self.instruction}\n\nTEXTO:\n{self.text}"},
-                ],
-                "temperature": 0.3,
-            }).encode("utf-8")
-            request = urllib.request.Request(
-                self.base_url.rstrip("/") + "/chat/completions", data=body,
-                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "User-Agent": "Transcriptor"},
-                method="POST",
-            )
-            with urllib.request.urlopen(request, timeout=180) as response:
-                result = json.load(response)
-            self.done.emit(result["choices"][0]["message"]["content"].strip())
+            local_root = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Transcriptor" / "models"
+            local_root.mkdir(parents=True, exist_ok=True)
+            model_path = local_root / AI_MODEL_NAME
+            if not model_path.exists() or model_path.stat().st_size < 400_000_000:
+                partial = model_path.with_suffix(model_path.suffix + ".part")
+                self.status.emit("Descargando IA local (aprox. 500 MB)…")
+                request = urllib.request.Request(AI_MODEL_URL, headers={"User-Agent": "Transcriptor-Local-AI"})
+                with urllib.request.urlopen(request, timeout=90) as response, partial.open("wb") as output:
+                    total = int(response.headers.get("Content-Length", "0"))
+                    received = 0
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        output.write(chunk)
+                        received += len(chunk)
+                        if total:
+                            self.status.emit(f"Descargando IA local… {received * 100 // total}%")
+                if partial.stat().st_size < 400_000_000:
+                    partial.unlink(missing_ok=True)
+                    raise RuntimeError("La descarga del modelo quedó incompleta. Revisa la conexión e inténtalo otra vez.")
+                partial.replace(model_path)
+            self.status.emit("Cargando el asistente local…")
+            from llama_cpp import Llama
+            model = Llama(model_path=str(model_path), n_ctx=8192, n_threads=max(2, (os.cpu_count() or 4) - 1), verbose=False)
+            pieces = split_for_local_model(self.text, 5500)
+            results = []
+            for index, piece in enumerate(pieces, start=1):
+                self.status.emit(f"{self.mode} con IA local… {index}/{len(pieces)}")
+                result = model.create_chat_completion(
+                    messages=[
+                        {"role": "system", "content": "Eres un asistente experto en resumir y traducir. Conserva los hechos y nombres; no inventes. Responde solo con el resultado solicitado. /no_think"},
+                        {"role": "user", "content": f"{self.instruction}\n\nTEXTO:\n{piece}"},
+                    ],
+                    temperature=0.2,
+                    max_tokens=1800 if self.mode == "Traduciendo" else 700,
+                )
+                results.append(result["choices"][0]["message"]["content"].strip())
+            if self.mode == "Resumiendo" and len(results) > 1:
+                self.status.emit("Uniendo las partes del resumen…")
+                combined = "\n\n".join(results)
+                final = model.create_chat_completion(
+                    messages=[
+                        {"role": "system", "content": "Sintetiza resúmenes parciales en un único resumen fiel, sin duplicaciones. Responde solo con el resultado. /no_think"},
+                        {"role": "user", "content": f"Enfoque: {self.instruction}\n\nRESÚMENES PARCIALES:\n{combined}"},
+                    ],
+                    temperature=0.2,
+                    max_tokens=1200,
+                )
+                results = [final["choices"][0]["message"]["content"].strip()]
+            self.done.emit("\n\n".join(results))
         except Exception as exc:
             self.error.emit(str(exc))
+        finally:
+            if model is not None:
+                model.close()
 
 
-class AISetupDialog(QDialog):
-    def __init__(self, provider="OpenAI", model="", parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Configurar asistente de IA")
-        self.setMinimumWidth(430)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Elige un proveedor compatible y añade tu API key. La clave se guarda en el almacén seguro de Windows. El texto se enviará a ese proveedor cuando pidas un resumen o una traducción."))
-        form = QFormLayout()
-        self.provider = QComboBox()
-        self.provider.addItems([*AI_PROVIDERS, "Compatible personalizado"])
-        if provider in [self.provider.itemText(i) for i in range(self.provider.count())]:
-            self.provider.setCurrentText(provider)
-        self.endpoint = QLineEdit()
-        self.model = QLineEdit(model)
-        self.key = QLineEdit()
-        self.key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.key.setPlaceholderText("API key")
-        form.addRow("Proveedor", self.provider)
-        form.addRow("URL base", self.endpoint)
-        form.addRow("Modelo", self.model)
-        form.addRow("API key", self.key)
-        layout.addLayout(form)
-        self.provider.currentTextChanged.connect(self.provider_changed)
-        self.provider_changed(self.provider.currentText())
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def provider_changed(self, name):
-        if name in AI_PROVIDERS:
-            endpoint, model = AI_PROVIDERS[name]
-            self.endpoint.setText(endpoint)
-            self.model.setText(model)
-            self.endpoint.setEnabled(False)
-        else:
-            self.endpoint.setEnabled(True)
-            if not self.endpoint.text() or self.endpoint.text() in [item[0] for item in AI_PROVIDERS.values()]:
-                self.endpoint.clear()
-            if self.model.text() in [item[1] for item in AI_PROVIDERS.values()]:
-                self.model.clear()
+def split_for_local_model(text: str, limit: int) -> list[str]:
+    chunks = []
+    remaining = text.strip()
+    while len(remaining) > limit:
+        end = max(remaining.rfind("\n", 0, limit), remaining.rfind(". ", 0, limit), remaining.rfind(" ", 0, limit))
+        if end < limit // 2:
+            end = limit
+        chunks.append(remaining[:end].strip())
+        remaining = remaining[end:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
 
 
 class UpdateChecker(QThread):
@@ -222,13 +222,14 @@ class MainWindow(QMainWindow):
         title = QLabel("Transcriptor")
         title.setObjectName("pageTitle")
         heading.addWidget(title)
-        subtitle = QLabel("Convierte voz en texto, de forma sencilla y privada.")
+        subtitle = QLabel("Transcribe, resume y traduce con inteligencia artificial local.")
         subtitle.setObjectName("muted")
         heading.addWidget(subtitle)
         header.addLayout(heading)
         header.addStretch()
-        local_badge = QLabel("●  TRANSCRIPCIÓN LOCAL")
+        local_badge = QLabel("●  IA LOCAL · SIN API KEY")
         local_badge.setObjectName("badge")
+        local_badge.setToolTip("El modelo se descarga una sola vez y después funciona en este equipo.")
         header.addWidget(local_badge, 0)
         layout.addLayout(header)
         header_actions = QHBoxLayout()
@@ -237,10 +238,6 @@ class MainWindow(QMainWindow):
         self.update_button.setObjectName("updateButton")
         self.update_button.clicked.connect(lambda: self.check_updates(manual=True))
         header_actions.addWidget(self.update_button, 0)
-        self.ai_setup_button = QPushButton("Configurar IA")
-        self.ai_setup_button.setObjectName("aiButton")
-        self.ai_setup_button.clicked.connect(self.configure_ai)
-        header_actions.addWidget(self.ai_setup_button, 0)
         layout.addLayout(header_actions)
 
         source_card = QFrame()
@@ -368,8 +365,6 @@ class MainWindow(QMainWindow):
             QPushButton#secondaryButton:hover { background:#ffddd6; }
             QPushButton#updateButton { background:transparent; color:#6542f5; border:1px solid #c9bcff; padding:9px 12px; }
             QPushButton#updateButton:hover { background:#eee9ff; }
-            QPushButton#aiButton { background:#fff0d7; color:#9a5700; border:1px solid #ffd38d; padding:9px 12px; }
-            QPushButton#aiButton:hover { background:#ffe5b7; }
             QPushButton#summaryButton { background:#fa5d75; }
             QPushButton#summaryButton:hover { background:#e74461; }
             QPushButton#translateButton { background:#087fcd; }
@@ -497,58 +492,12 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Error de transcripción", message)
         self.start_button.setEnabled(True)
 
-    def configure_ai(self):
-        try:
-            keyring = credential_store()
-        except ImportError:
-            QMessageBox.warning(self, "Falta un componente", "No se encontró el almacén seguro de credenciales. Reinstala Transcriptor para habilitar el asistente de IA.")
-            return
-        settings = self.settings()
-        dialog = AISetupDialog(settings.value("provider", "OpenAI"), settings.value("model", ""), self)
-        dialog.key.setText(keyring.get_password(KEYRING_SERVICE, "api_key") or "")
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        key = dialog.key.text().strip()
-        endpoint = dialog.endpoint.text().strip().rstrip("/")
-        model = dialog.model.text().strip()
-        if not key or not endpoint.startswith("https://") or not model:
-            QMessageBox.warning(self, "Revisa la configuración", "Se requiere API key, modelo y una URL base HTTPS válida.")
-            return
-        keyring.set_password(KEYRING_SERVICE, "api_key", key)
-        settings.setValue("provider", dialog.provider.currentText())
-        settings.setValue("endpoint", endpoint)
-        settings.setValue("model", model)
-        self.status.setText("IA CONFIGURADA")
-
-    def settings(self):
-        from PySide6.QtCore import QSettings
-        return QSettings("Transcriptor", "Transcriptor")
-
     def transcript_text(self):
         text = self.output.toPlainText().strip()
         if not text:
             QMessageBox.information(self, "Falta la transcripción", "Primero transcribe un audio o video.")
             return ""
         return text
-
-    def llm_credentials(self):
-        try:
-            keyring = credential_store()
-            key = keyring.get_password(KEYRING_SERVICE, "api_key")
-        except Exception:
-            key = None
-        settings = self.settings()
-        if not key or not settings.value("endpoint") or not settings.value("model"):
-            QMessageBox.information(self, "Configura el asistente", "Añade un proveedor y API key para generar resúmenes y traducciones.")
-            self.configure_ai()
-            try:
-                keyring = credential_store()
-                key = keyring.get_password(KEYRING_SERVICE, "api_key")
-            except Exception:
-                key = None
-        if not key:
-            return None
-        return key, settings.value("endpoint"), settings.value("model")
 
     def start_summary(self):
         text = self.transcript_text()
@@ -655,16 +604,14 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Sin coincidencias", f"No se encontró la palabra completa «{term}» en el texto seleccionado.")
 
     def run_llm(self, text, instruction, target, status):
-        credentials = self.llm_credentials()
-        if not credentials:
-            return
-        key, endpoint, model = credentials
         self.status.setText(status)
         self.summarize_button.setEnabled(False)
         self.translate_button.setEnabled(False)
         self.llm_target = target
         self.tabs.setCurrentWidget(target)
-        self.llm_worker = LLMWorker(text, instruction, key, endpoint, model)
+        mode = "Resumiendo" if target is self.summary_output else "Traduciendo"
+        self.llm_worker = LocalAIWorker(text, instruction, mode)
+        self.llm_worker.status.connect(self.status.setText)
         self.llm_worker.done.connect(self.llm_done)
         self.llm_worker.error.connect(self.llm_error)
         self.llm_worker.start()
@@ -679,7 +626,7 @@ class MainWindow(QMainWindow):
         self.status.setText("NO SE PUDO COMPLETAR")
         self.summarize_button.setEnabled(True)
         self.translate_button.setEnabled(True)
-        QMessageBox.warning(self, "Error del asistente de IA", f"No se pudo generar el resultado. Revisa la API key, el modelo y tu conexión.\n\n{error}")
+        QMessageBox.warning(self, "Error de IA local", f"No se pudo cargar o ejecutar el modelo local. Revisa tu conexión si es la primera vez y vuelve a intentarlo.\n\n{error}")
 
     def save_text(self):
         text = self.tabs.currentWidget().toPlainText()

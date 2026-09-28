@@ -1,8 +1,8 @@
 # Transcriptor
 
-Aplicación de escritorio independiente para transcribir archivos de audio/video y enlaces públicos compatibles con yt-dlp. El reconocimiento se ejecuta localmente con Whisper; no requiere una API key. La primera ejecución descarga el modelo elegido.
+Aplicación de escritorio independiente para transcribir archivos de audio/video y enlaces públicos compatibles con yt-dlp. El reconocimiento se ejecuta localmente con Whisper; no requiere una API key. La primera ejecución descarga el modelo Whisper elegido.
 
-También incluye resúmenes enfocados y traducción mediante un proveedor de IA compatible con chat (OpenAI, Groq, OpenRouter o endpoint compatible). La clave se almacena con el almacén seguro de credenciales de Windows. El usuario puede pedir, por ejemplo, que el resumen destaque ideas principales, acuerdos y tareas, cifras y fechas, argumentos o un enfoque propio. La traducción admite idiomas comunes y un idioma personalizado. Esas dos funciones envían el texto transcrito al proveedor configurado.
+También incluye un modelo de lenguaje local Qwen 3 para resúmenes enfocados y traducción. No requiere API key ni envía el texto a un servicio externo. La primera vez que se usa descarga el modelo cuantizado (aproximadamente 500 MB) y lo guarda en `%LOCALAPPDATA%\Transcriptor\models`; los usos siguientes funcionan sin conexión. Para resumir se puede priorizar ideas principales, acuerdos y tareas, cifras y fechas, argumentos o un enfoque propio. La traducción admite idiomas comunes y uno personalizado.
 
 La función **Quitar o cambiar palabra** edita todas las apariciones de una palabra completa en la transcripción, resumen y traducción; dejar vacío el reemplazo elimina las apariciones. No usa IA.
 
