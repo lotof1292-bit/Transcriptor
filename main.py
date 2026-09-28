@@ -12,11 +12,11 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
-    QPlainTextEdit, QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QMainWindow, QMessageBox,
+    QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 GITHUB_REPOSITORY = "lotof1292-bit/Transcriptor"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 AI_PROVIDERS = {
@@ -194,15 +194,24 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Transcriptor | Audio a texto")
-        self.resize(1000, 780)
-        self.setMinimumSize(760, 620)
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen else None
+        if available:
+            min_width = min(640, max(420, available.width() - 40))
+            min_height = min(520, max(360, available.height() - 40))
+            self.resize(max(min_width, min(1024, available.width() - 60)), max(min_height, min(760, available.height() - 80)))
+        else:
+            min_width, min_height = 640, 520
+            self.resize(960, 680)
+        self.setMinimumSize(min_width, min_height)
         self.file_path = ""
         self.setAcceptDrops(True)
 
         root = QWidget()
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(34, 28, 34, 28)
-        layout.setSpacing(18)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(12)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         header = QHBoxLayout()
         brand = QLabel("T")
@@ -221,15 +230,18 @@ class MainWindow(QMainWindow):
         local_badge = QLabel("●  TRANSCRIPCIÓN LOCAL")
         local_badge.setObjectName("badge")
         header.addWidget(local_badge, 0)
+        layout.addLayout(header)
+        header_actions = QHBoxLayout()
+        header_actions.addStretch()
         self.update_button = QPushButton("Buscar actualizaciones")
         self.update_button.setObjectName("updateButton")
         self.update_button.clicked.connect(lambda: self.check_updates(manual=True))
-        header.addWidget(self.update_button, 0)
+        header_actions.addWidget(self.update_button, 0)
         self.ai_setup_button = QPushButton("Configurar IA")
         self.ai_setup_button.setObjectName("aiButton")
         self.ai_setup_button.clicked.connect(self.configure_ai)
-        header.addWidget(self.ai_setup_button, 0)
-        layout.addLayout(header)
+        header_actions.addWidget(self.ai_setup_button, 0)
+        layout.addLayout(header_actions)
 
         source_card = QFrame()
         source_card.setObjectName("card")
@@ -317,6 +329,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.output, "Transcripción")
         self.tabs.addTab(self.summary_output, "Resumen")
         self.tabs.addTab(self.translation_output, "Traducción")
+        self.tabs.setMinimumHeight(275)
         result_layout.addWidget(self.tabs, 1)
         save = QPushButton("Guardar como .txt")
         save.setObjectName("secondaryButton")
@@ -327,7 +340,13 @@ class MainWindow(QMainWindow):
         self.status.setText("LISTO · El audio se procesa en este equipo")
         self.status.setObjectName("status")
         self.output.setObjectName("output")
-        self.setCentralWidget(root)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(root)
+        self.setCentralWidget(scroll)
         self.setStyleSheet("""
             QMainWindow,QWidget { background:#f5f4f9; color:#201d32; font:14px 'Segoe UI'; }
             QLabel#brandMark { background:#6542f5; color:white; border-radius:16px; font-size:25px; font-weight:800; min-width:54px; max-width:54px; min-height:54px; max-height:54px; }
