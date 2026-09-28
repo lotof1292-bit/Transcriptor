@@ -27,6 +27,13 @@ AI_PROVIDERS = {
 KEYRING_SERVICE = "Transcriptor"
 
 
+def credential_store():
+    import keyring
+    from keyring.backends.Windows import WinVaultKeyring
+    keyring.set_keyring(WinVaultKeyring())
+    return keyring
+
+
 class LLMWorker(QThread):
     done = Signal(str)
     error = Signal(str)
@@ -64,7 +71,7 @@ class AISetupDialog(QDialog):
         self.setWindowTitle("Configurar asistente de IA")
         self.setMinimumWidth(430)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Elige un proveedor compatible y añade tu API key. La clave se guarda en el almacén seguro de Windows."))
+        layout.addWidget(QLabel("Elige un proveedor compatible y añade tu API key. La clave se guarda en el almacén seguro de Windows. El texto se enviará a ese proveedor cuando pidas un resumen o una traducción."))
         form = QFormLayout()
         self.provider = QComboBox()
         self.provider.addItems([*AI_PROVIDERS, "Compatible personalizado"])
@@ -211,7 +218,7 @@ class MainWindow(QMainWindow):
         heading.addWidget(subtitle)
         header.addLayout(heading)
         header.addStretch()
-        local_badge = QLabel("●  PROCESAMIENTO LOCAL")
+        local_badge = QLabel("●  TRANSCRIPCIÓN LOCAL")
         local_badge.setObjectName("badge")
         header.addWidget(local_badge, 0)
         self.update_button = QPushButton("Buscar actualizaciones")
@@ -259,13 +266,11 @@ class MainWindow(QMainWindow):
         settings_layout.setContentsMargins(22, 17, 22, 17)
         settings_layout.addWidget(QLabel("2. Calidad de transcripción"))
         settings_layout.addStretch()
-        model_row = QHBoxLayout()
         self.model = QComboBox()
         self.model.addItem("Rápida", "small")
         self.model.addItem("Equilibrada", "medium")
         self.model.addItem("Más precisa", "large-v3")
         self.model.setMinimumWidth(180)
-        settings_layout.addLayout(model_row)
         settings_layout.addWidget(self.model)
         layout.addWidget(settings_card)
 
@@ -475,7 +480,7 @@ class MainWindow(QMainWindow):
 
     def configure_ai(self):
         try:
-            import keyring
+            keyring = credential_store()
         except ImportError:
             QMessageBox.warning(self, "Falta un componente", "No se encontró el almacén seguro de credenciales. Reinstala Transcriptor para habilitar el asistente de IA.")
             return
@@ -509,7 +514,7 @@ class MainWindow(QMainWindow):
 
     def llm_credentials(self):
         try:
-            import keyring
+            keyring = credential_store()
             key = keyring.get_password(KEYRING_SERVICE, "api_key")
         except Exception:
             key = None
@@ -518,7 +523,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Configura el asistente", "Añade un proveedor y API key para generar resúmenes y traducciones.")
             self.configure_ai()
             try:
-                import keyring
+                keyring = credential_store()
                 key = keyring.get_password(KEYRING_SERVICE, "api_key")
             except Exception:
                 key = None
