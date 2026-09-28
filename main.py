@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 GITHUB_REPOSITORY = "lotof1292-bit/Transcriptor"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 AI_MODEL_NAME = "Qwen3-0.6B-Q4_K_M.gguf"

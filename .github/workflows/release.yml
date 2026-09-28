@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Build Windows executable
-        run: pyinstaller --noconfirm --clean --onefile --windowed --collect-all llama_cpp --hidden-import llama_cpp.llama --name Transcriptor main.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --collect-all llama_cpp --collect-all faster_whisper --hidden-import llama_cpp.llama --name Transcriptor main.py
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
