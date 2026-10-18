@@ -25,10 +25,16 @@ jobs:
           Set-Content -Path main.py -Value $source -Encoding utf8
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Build Windows executable
-        run: pyinstaller --noconfirm --clean --onefile --windowed --collect-all llama_cpp --collect-all faster_whisper --hidden-import llama_cpp.llama --name Transcriptor main.py
+      - name: Build Windows application bundle
+        run: pyinstaller --noconfirm --clean --onedir --windowed --collect-all llama_cpp --collect-data faster_whisper --hidden-import llama_cpp.llama --name Transcriptor main.py
+      - name: Remove incompatible ICU libraries from build environment
+        shell: pwsh
+        run: Remove-Item -Path dist/Transcriptor/_internal/icu*.dll -Force -ErrorAction SilentlyContinue
+      - name: Package Windows application bundle
+        shell: pwsh
+        run: Compress-Archive -Path dist/Transcriptor/* -DestinationPath dist/Transcriptor-Windows.zip -CompressionLevel Optimal
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/Transcriptor.exe
+          files: dist/Transcriptor-Windows.zip

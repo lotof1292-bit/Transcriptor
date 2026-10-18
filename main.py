@@ -16,11 +16,11 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.3"
 GITHUB_REPOSITORY = "lotof1292-bit/Transcriptor"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 AI_MODEL_NAME = "Qwen3-0.6B-Q4_K_M.gguf"
-AI_MODEL_URL = "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true"
+AI_MODEL_URL = "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen_Qwen3-0.6B-Q4_K_M.gguf?download=true"
 
 
 class LocalAIWorker(QThread):
@@ -109,7 +109,7 @@ def split_for_local_model(text: str, limit: int) -> list[str]:
 
 
 class UpdateChecker(QThread):
-    available = Signal(str, str)
+    available = Signal(str, str, str)
     checked = Signal(bool)
     failed = Signal(str)
 
@@ -121,9 +121,12 @@ class UpdateChecker(QThread):
             latest = release.get("tag_name", "").lstrip("v")
             latest_parts = tuple(int(n) for n in re.findall(r"\d+", latest))
             current_parts = tuple(int(n) for n in re.findall(r"\d+", APP_VERSION))
-            asset = next((item for item in release.get("assets", []) if item.get("name") == "Transcriptor.exe"), None)
+            assets = release.get("assets", [])
+            asset = next((item for item in assets if item.get("name") == "Transcriptor-Windows.zip"), None)
+            if asset is None:
+                asset = next((item for item in assets if item.get("name") == "Transcriptor.exe"), None)
             if latest_parts > current_parts and asset:
-                self.available.emit(latest, asset["browser_download_url"])
+                self.available.emit(latest, asset["browser_download_url"], asset["name"])
             else:
                 self.checked.emit(True)
         except Exception as exc:
@@ -134,13 +137,14 @@ class UpdateDownloader(QThread):
     complete = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, asset_name: str):
         super().__init__()
         self.url = url
+        self.asset_name = asset_name
 
     def run(self):
         try:
-            target = Path(tempfile.gettempdir()) / "Transcriptor-update.exe"
+            target = Path(tempfile.gettempdir()) / self.asset_name
             request = urllib.request.Request(self.url, headers={"User-Agent": "Transcriptor-Updater"})
             with urllib.request.urlopen(request, timeout=60) as response, target.open("wb") as output:
                 while True:
@@ -176,15 +180,33 @@ class TranscriptionWorker(QThread):
                     media_path = dl.prepare_filename(info)
             self.status.emit(f"Cargando Whisper ({self.model_name}); la primera descarga puede tardar…")
             from faster_whisper import WhisperModel
-            model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+            model = WhisperModel(
+                self.model_name,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=2,
+                num_workers=1,
+            )
             self.status.emit("Transcribiendo…")
-            segments, _ = model.transcribe(media_path, vad_filter=True)
+            segments, _ = model.transcribe(
+                media_path,
+                beam_size=1,
+                condition_on_previous_text=False,
+                vad_filter=True,
+            )
             text = " ".join(segment.text.strip() for segment in segments).strip()
             if not text:
                 raise RuntimeError("No se detectó voz en el archivo.")
             self.done.emit(text)
         except Exception as exc:
-            self.error.emit(str(exc))
+            message = str(exc)
+            if "malloc" in message.lower() or "memory" in message.lower():
+                message = (
+                    "El equipo se quedó sin memoria durante la transcripción. "
+                    "Cierra otros programas e inténtalo con la calidad Rápida.\n\n"
+                    f"Detalle: {message}"
+                )
+            self.error.emit(message)
         finally:
             if temp_dir:
                 temp_dir.cleanup()
@@ -276,9 +298,9 @@ class MainWindow(QMainWindow):
         settings_layout.addWidget(QLabel("2. Calidad de transcripción"))
         settings_layout.addStretch()
         self.model = QComboBox()
-        self.model.addItem("Rápida", "small")
-        self.model.addItem("Equilibrada", "medium")
-        self.model.addItem("Más precisa", "large-v3")
+        self.model.addItem("Rápida · menos memoria", "tiny")
+        self.model.addItem("Equilibrada", "base")
+        self.model.addItem("Más precisa", "small")
         self.model.setMinimumWidth(180)
         settings_layout.addWidget(self.model)
         layout.addWidget(settings_card)
@@ -402,7 +424,7 @@ class MainWindow(QMainWindow):
         if self.update_manual:
             QMessageBox.warning(self, "No se pudo comprobar", f"Revisa tu conexión e inténtalo de nuevo.\n\n{error}")
 
-    def offer_update(self, version, url):
+    def offer_update(self, version, url, asset_name):
         answer = QMessageBox.question(
             self, "Actualización disponible",
             f"Está disponible la versión {version}.\nTu versión: {APP_VERSION}\n\n¿Descargarla e instalarla ahora? La aplicación se reiniciará.",
@@ -412,7 +434,7 @@ class MainWindow(QMainWindow):
             return
         self.status.setText("DESCARGANDO ACTUALIZACIÓN…")
         self.start_button.setEnabled(False)
-        self.update_downloader = UpdateDownloader(url)
+        self.update_downloader = UpdateDownloader(url, asset_name)
         self.update_downloader.complete.connect(self.apply_update)
         self.update_downloader.failed.connect(self.update_download_failed)
         self.update_downloader.start()
@@ -425,12 +447,28 @@ class MainWindow(QMainWindow):
         script = Path(tempfile.gettempdir()) / "transcriptor_apply_update.ps1"
         def ps_quote(value):
             return "'" + str(value).replace("'", "''") + "'"
+        if downloaded.suffix.lower() == ".zip":
+            install_dir = current.parent
+            unpack_dir = Path(tempfile.gettempdir()) / "Transcriptor-update-unpacked"
+            script_body = (
+                f"$unpack = {ps_quote(unpack_dir)}\n"
+                f"Remove-Item -LiteralPath $unpack -Recurse -Force -ErrorAction SilentlyContinue\n"
+                f"Expand-Archive -LiteralPath {ps_quote(downloaded)} -DestinationPath $unpack -Force\n"
+                f"Copy-Item -Path (Join-Path $unpack '*') -Destination {ps_quote(install_dir)} -Recurse -Force\n"
+                f"Start-Process -FilePath {ps_quote(current)}\n"
+                f"Remove-Item -LiteralPath $unpack -Recurse -Force -ErrorAction SilentlyContinue\n"
+            )
+        else:
+            script_body = (
+                f"Move-Item -LiteralPath {ps_quote(downloaded)} -Destination {ps_quote(current)} -Force\n"
+                f"Start-Process -FilePath {ps_quote(current)}\n"
+            )
         script.write_text(
             f"Start-Sleep -Seconds 2\n"
             f"while (Get-Process -Id {os.getpid()} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 400 }}\n"
-            f"Move-Item -LiteralPath {ps_quote(downloaded)} -Destination {ps_quote(current)} -Force\n"
-            f"Start-Process -FilePath {ps_quote(current)}\n"
-            f"Remove-Item -LiteralPath $PSCommandPath -Force\n",
+            + script_body
+            + f"Remove-Item -LiteralPath {ps_quote(downloaded)} -Force -ErrorAction SilentlyContinue\n"
+            + "Remove-Item -LiteralPath $PSCommandPath -Force\n",
             encoding="utf-8",
         )
         subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
