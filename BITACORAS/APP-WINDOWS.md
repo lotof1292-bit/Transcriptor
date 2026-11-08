@@ -1,5 +1,13 @@
 # Bitácora · Aplicación Windows
 
+## 2026-11-08 · pre-release Windows publicada
+
+- Cambio: se publicó `v1.1.3-windows-preview` con `Transcriptor-Windows.zip`.
+- Motivo: conservar el artefacto histórico sin confundirlo con la versión Windows validada anteriormente.
+- Archivos: ZIP con 426 entradas y SHA-256 `8EFC76D3B9CAEDA77D0A670DBB8F34C9A65A14016A2773728E1EA269D42A3FFF`.
+- Validación: todas las entradas del ZIP se leyeron completamente sin error; la Release está marcada como previa y advierte que falta una prueba limpia de extremo a extremo.
+- Faltantes: ejecutar y validar transcripción, resumen y traducción empaquetados en una PC limpia.
+
 ## 2026-11-08 · traslado a carpeta propia
 
 - Cambio: la aplicación Windows y su historial se movieron junto con todo Transcriptor a `PROYECTOS_IA_Y_DESARROLLO\Transcriptor`.

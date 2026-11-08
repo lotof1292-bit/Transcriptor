@@ -8,6 +8,14 @@
 - Validación: 86 archivos revisados, sin secretos reales ni archivos mayores de 92 KB; commit principal `fddb4d2` enviado a `origin/master` y confirmado contra la referencia remota.
 - Faltantes: los APK/EXE/ZIP se distribuirán como artefactos o Releases, no dentro del historial Git.
 
+## 2026-11-08 · pre-release Android publicada
+
+- Cambio: se publicó `v1.4.0-android-preview` con APK Free y Premium.
+- Motivo: distribuir los binarios fuera del historial Git y conservar automáticamente el código fuente etiquetado.
+- Archivos: `Transcriptor-Studio-1.4-free.apk` y `Transcriptor-Studio-1.4-premium.apk`.
+- Validación: ambos APK verifican firmas v2/v3; la Release quedó marcada como previa y documenta las pruebas y limitaciones reales.
+- Faltantes: firma comercial, teléfono TTS, Qwen/Ollama/API reales y VPS antes de declarar producción.
+
 ## 2026-11-08 · traslado a carpeta propia
 
 - Cambio: Android, servidor, pruebas y artefactos se movieron con el proyecto completo a `PROYECTOS_IA_Y_DESARROLLO\Transcriptor`.
