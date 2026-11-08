@@ -5,7 +5,7 @@
 - Cambio: se amplió `.gitignore` y se preparó la publicación de Windows, Android Free/Premium, servidor, pruebas y documentación.
 - Motivo: conservar todo el código reconstruible en GitHub sin publicar claves, firmas, entornos, modelos, dependencias instaladas ni binarios generados.
 - Archivos: raíz del proyecto, `android-studio`, `android-studio-v1.3`, `BITACORAS` y documentación central.
-- Validación: pendiente revisar el índice preparado, escanear secretos, crear commit y comprobar el push remoto.
+- Validación: 86 archivos revisados, sin secretos reales ni archivos mayores de 92 KB; commit principal `fddb4d2` enviado a `origin/master` y confirmado contra la referencia remota.
 - Faltantes: los APK/EXE/ZIP se distribuirán como artefactos o Releases, no dentro del historial Git.
 
 ## 2026-11-08 · traslado a carpeta propia
