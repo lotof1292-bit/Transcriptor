@@ -1,0 +1,1 @@
+{"private":true,"name":"transcriptor-studio-qa","scripts":{"test:ui":"node tests/ui-test.cjs","test:editions":"node tests/editions-test.cjs","test:import":"node tests/import-transcribe-test.cjs"},"devDependencies":{"playwright":"^1.58.0","@sparticuz/chromium":"^143.0.0"}}

@@ -1,0 +1,22 @@
+# Sustituye el dominio y asegúrate de que sus registros DNS apunten al VPS.
+transcriptor.example.com {
+    encode zstd gzip
+
+    request_body {
+        max_size 26MB
+    }
+
+    reverse_proxy 127.0.0.1:8790 {
+        transport http {
+            dial_timeout 10s
+            response_header_timeout 60m
+        }
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+}
